@@ -9,14 +9,15 @@ import scala.util.control.NoStackTrace
 
 object client {
   sealed trait ClientError extends NoStackTrace
-  case class MalformedResponseEntity(message: String) extends ClientError
+  case class MalformedResponseEntity(message: String) extends ClientError {
+    override def getMessage: String = message
+  }
   case class BadResponseStatus(
       request: String,
       status: Status,
       body: String,
     ) extends ClientError
 
-  // FIXME Should split these up better
   case class GridId(value: String) extends AnyVal
   case class XCoordinate(value: Int) extends AnyVal
   case class YCoordinate(value: Int) extends AnyVal
@@ -74,7 +75,6 @@ object client {
         ForecastEndTime(end),
       )
 
-    // FIXME So gross
     def fromForecastResponse(json: Json): Either[ClientError, WeatherReport] = {
       // Finds period with number = 1 (so the "current" period)...theoretically...almost always :)
       val _currentPeriodOptic =

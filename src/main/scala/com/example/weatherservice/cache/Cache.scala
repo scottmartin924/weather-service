@@ -4,7 +4,6 @@ import zio.ZIO
 
 import java.time.Instant
 
-// FIXME Add docs
 trait Cache[K, V] {
   // Get cache value from key
   def get(key: K): ZIO[Any, Nothing, Option[V]]

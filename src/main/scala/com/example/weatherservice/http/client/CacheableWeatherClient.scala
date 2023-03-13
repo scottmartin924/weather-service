@@ -10,20 +10,22 @@ import zio.{Clock, ZIO, ZLayer}
 
 import java.time.Duration
 
+// Note: This _should_ extend WeatherClient, but it was causing all sorts of circular dependencies in the
+// the ZIO DI mechanism so annoyingly I ended up just removing that (sad day)
 class CacheableWeatherClient(
     weatherClient: WeatherClient,
     cache: WeatherCache,
-  ) extends WeatherClient {
+  ) {
   // Note: Uses Java b/c using Instant from java.time
   private val defaultCacheExpiry = Duration.ofMinutes(3)
 
   // Note: We don't cache long/lat to grid points but we could (might be tricky though)
-  override def retrieveGeographicPointInfo(
+  def retrieveGeographicPointInfo(
       point: GeographicPoint,
     ): ZIO[Any, Throwable, client.WeatherGridPoint] =
     weatherClient.retrieveGeographicPointInfo(point)
 
-  override def retrieveForecast(
+  def retrieveForecast(
       point: WeatherGridPoint,
     ): ZIO[Any, Throwable, WeatherReport] =
     for {
@@ -40,7 +42,7 @@ class CacheableWeatherClient(
       }
     } yield report
 
-  override def health: ZIO[Any, Throwable, HealthStatus] =
+  def health: ZIO[Any, Throwable, HealthStatus] =
     weatherClient.health
 }
 

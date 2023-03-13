@@ -11,7 +11,7 @@ import zio.ZIO.{logDebug, logError, logInfo}
 import zio.{ZIO, ZLayer}
 
 trait WeatherClient {
-  // Note: We _do not_ use the forecast that gives the url of the forecast for the point...FIXME Discuss why not
+  // Note: We _do not_ use the forecast that gives the url of the forecast for the point (can discuss why)
   def retrieveGeographicPointInfo(
       point: GeographicPoint,
     ): ZIO[Any, Throwable, WeatherGridPoint]

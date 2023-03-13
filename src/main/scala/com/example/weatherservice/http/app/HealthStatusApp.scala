@@ -9,7 +9,6 @@ import com.example.weatherservice.resource.health.ServiceStatus._
 
 object HealthStatusApp {
   val app = Http.collectZIO[Request] {
-    // FIXME
     case Method.GET -> !! / "health" =>
       ZIO
         .serviceWithZIO[WeatherClient](_.health)

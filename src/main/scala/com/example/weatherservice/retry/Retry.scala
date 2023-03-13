@@ -19,9 +19,8 @@ trait Retry {
 }
 
 object Retry {
-  // Exponential backoff retry with given delay and max attempts. Uses default
-  // system clock.
-  val exponentialBackWithDefaultClock: Retry = new Retry {
+  // Fixed backoff retry with given delay and max attempts
+  val fixedDelay: Retry = new Retry {
     override def retry[R, E, A](
         delay: FiniteDuration,
         maxAttempts: Int,
@@ -31,7 +30,7 @@ object Retry {
       ): ZIO[R, E, A] = {
       val fWithLogging = logInfo(s"Running job {$description}") *> f
       fWithLogging.retry(
-        Schedule.exponential(Duration.fromScala(delay)) && Schedule.recurs(maxAttempts),
+        Schedule.fixed(Duration.fromScala(delay)) && Schedule.recurs(maxAttempts),
       )
     }
   }

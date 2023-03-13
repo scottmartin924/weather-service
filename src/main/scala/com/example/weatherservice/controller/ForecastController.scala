@@ -1,12 +1,10 @@
 package com.example.weatherservice.controller
 
 import com.example.weatherservice.domain.client.BadResponseStatus
-import com.example.weatherservice.domain.client.WeatherGridPoint._
-import com.example.weatherservice.domain.geography.{GeographicPoint, GeographyError}
-import com.example.weatherservice.resource.forecast.MissingPointInfo
+import com.example.weatherservice.domain.geography.{GeographicPoint, GeographyError, InvalidPoint}
 import com.example.weatherservice.service.ForecastService
 import io.circe.generic.auto._
-import io.circe.syntax.{EncoderOps, _}
+import io.circe.syntax.EncoderOps
 import zhttp.http._
 import zio.ZIO.{logError, logInfo}
 import zio.{ZIO, ZLayer}
@@ -17,15 +15,21 @@ object ForecastController {
       val latitudeField = "lat"
       val longitudeField = "long"
       val queryParameters = request.url.queryParams
+      def queryParameterToDouble(queryParameter: String): Option[Double] = for {
+        list <- queryParameters.get(queryParameter)
+        head <- list.headOption
+        double <- head.toDoubleOption
+      } yield double
+
       val point = for {
-        lat <- queryParameters(latitudeField).headOption.flatMap(_.toDoubleOption)
-        long <- queryParameters(longitudeField).headOption.flatMap(_.toDoubleOption)
+        lat <- queryParameterToDouble(latitudeField)
+        long <- queryParameterToDouble(longitudeField)
       } yield (lat, long)
 
       val job = for {
         point <- ZIO
           .fromOption(point)
-          .mapError(_ => MissingPointInfo("Both lat and long query parameters must be provided"))
+          .mapError(_ => InvalidPoint("Both lat and long query parameters must be provided"))
         point <- ZIO.fromEither(GeographicPoint.make(point._1, point._2))
         _ <- logInfo(s"Retrieving forecast for lat,long: $point")
         forecast <- service.retrieveForecast(point)
@@ -41,7 +45,7 @@ object ForecastController {
             Response.json(clientErr.asJson.noSpaces).setStatus(clientErr.status),
           )
         case err =>
-          logError(s"Failed to retrieve forecast: ${err}") *> ZIO.succeed(
+          logError(s"Failed to retrieve forecast: $err") *> ZIO.succeed(
             Response.json(err.getMessage.asJson.noSpaces).setStatus(Status.InternalServerError),
           )
       }
@@ -54,7 +58,7 @@ object ForecastController {
     ): ZIO[Controller, Nothing, Response] =
     ZIO.serviceWithZIO[Controller](_.getForecast(request))
 
-  val live = ZLayer {
+  val live: ZLayer[ForecastService, Nothing, Controller] = ZLayer {
     for {
       service <- ZIO.service[ForecastService]
     } yield new Controller(service)

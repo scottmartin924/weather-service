@@ -1,7 +1,7 @@
 package com.example.weatherservice.cache
 
 import com.example.weatherservice.domain.client._
-import zio.test.{Spec, TestClock, TestEnvironment, ZIOSpecDefault, assertTrue}
+import zio.test.{assertTrue, Spec, TestClock, TestEnvironment, ZIOSpecDefault}
 import zio.{Scope, ZIO}
 
 import java.time.ZonedDateTime
@@ -66,8 +66,8 @@ object WeatherCacheSpec extends ZIOSpecDefault {
         end = ForecastEndTime(now.minus(10, ChronoUnit.MINUTES)),
       )
       for {
+        _ <- TestClock.setTime(now.toInstant)
         cache <- ZIO.service[WeatherCache]
-        now <- TestClock.setTime(now.toInstant)
         _ <- cache.set(gridPoint, report)
         response <- cache.get(gridPoint)
       } yield assertTrue(response.isEmpty)

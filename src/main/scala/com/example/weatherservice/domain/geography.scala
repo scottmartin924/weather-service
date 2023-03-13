@@ -3,7 +3,6 @@ package com.example.weatherservice.domain
 import scala.util.control.NoStackTrace
 
 object geography {
-  // FIXME Is this overkills
   sealed trait GeographyError extends NoStackTrace
   case class InvalidPoint(message: String) extends GeographyError
 
@@ -12,7 +11,6 @@ object geography {
   sealed abstract case class Longitude private (value: Double)
 
   object Latitude {
-    // TODO Consider if want to do something about this...the magic 90 is strange
     private val MAX_LAT = 90
     def make(latitude: Double): Either[GeographyError, Latitude] =
       Either.cond(
