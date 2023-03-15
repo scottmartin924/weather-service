@@ -7,6 +7,7 @@ import zio.{Clock, Ref, ZIO, ZLayer}
 import java.time.Instant
 import scala.collection.mutable
 
+// QUESTION: Why make this mutable? Think about it some
 class WeatherCache private (ref: Ref[mutable.Map[WeatherGridPoint, CacheValue[WeatherReport]]])
     extends Cache[WeatherGridPoint, WeatherReport] {
   override def get(key: WeatherGridPoint): ZIO[Any, Nothing, Option[WeatherReport]] = for {
@@ -29,6 +30,7 @@ class WeatherCache private (ref: Ref[mutable.Map[WeatherGridPoint, CacheValue[We
       expireTime: Instant = Instant.MAX,
     ): ZIO[Any, Nothing, Unit] =
     ref.update { cache =>
+      // NOTE: This only works b/c addOne returns entire map...which is nice
       cache.addOne(key -> CacheValue(value, expireTime))
     }
 
