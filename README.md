@@ -66,9 +66,9 @@ code from a book I've been working through)
 ### Known Issues/Improvements
 There are a few (well...many) known areas for improvement. I'll list a few here in no particular order, but this is by no means
 exhaustive.
+- There are several issues with the cache. First, it could overflow since there's no mechanism to evict. One solution to that is to put in place a background process to do that, or use a cache library that handles it, or move it out of memory all together. Second, it's obviously not persistent.
 - Every call requires at least one call to the NOAA API (to convert lat/long to NOAA grid point). We could try to do a sort of grid-based caching of lat/longs or something perhaps more clever there
 - Error handling is currently far from exhaustive. The NOAA API could throw many errors that we'd just return a 500 for (and we could get our API throttled)
-- The cache should probably be persistent, moreover its expiry period could be configurable
 - Currently very little API response standardization and no endpoint versioning, both would need to be improved
 - Could use more tests. In particular, currently there's no real test of the retry logic in [ForecastService](src/main/scala/com/example/weatherservice/service/ForecastService.scala)
 - The [temperature classifier](src/main/scala/com/example/weatherservice/service/TemperatureClassifier.scala) could be configurable instead of being hard-coded and, though more complex, could depend on the location you're looking up
