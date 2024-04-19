@@ -1,35 +1,54 @@
 package com.example.weatherservice
 
-import com.example.weatherservice.cache.WeatherCache
-import com.example.weatherservice.config.ApplicationConfig
-import com.example.weatherservice.controller.ForecastController
-import com.example.weatherservice.http.app.{HealthStatusApp, WeatherHttpApp}
-import com.example.weatherservice.http.client.{CacheableWeatherClient, WeatherClient}
-import com.example.weatherservice.service.{ForecastService, TemperatureClassifier}
-import zhttp.http._
-import zhttp.service.{ChannelFactory, EventLoopGroup, Server}
-import zio._
+import cats.effect.{Clock, IO, IOApp, Resource}
+import com.comcast.ip4s.Port
+import com.example.weatherservice.config.{ApplicationConfig, Harness}
+import com.example.weatherservice.retry.ClientRetry
+import org.http4s.{HttpApp, HttpRoutes}
+import org.http4s.client.Client
+import org.http4s.client.middleware.{Retry, RetryPolicy}
+import org.http4s.ember.client.EmberClientBuilder
+import org.http4s.ember.server.EmberServerBuilder
+import org.http4s.server.Server
 
-object Main extends ZIOAppDefault {
-  val app = WeatherHttpApp.app ++ HealthStatusApp.app
+import scala.concurrent.duration.DurationInt
 
-  override def run: ZIO[Any with ZIOAppArgs with Scope, Any, Any] =
-    ZIO
-      .service[ApplicationConfig]
-      .flatMap { config =>
-        Server
-          .start(config.port, app)
-          .exitCode
-      }
-      .provide(
-        EventLoopGroup.auto(),
-        ChannelFactory.auto,
-        ForecastService.live,
-        WeatherClient.live,
-        CacheableWeatherClient.live,
-        WeatherCache.inMemoryWeatherCache,
-        ZLayer.succeed(TemperatureClassifier.defaultClassifier),
-        ApplicationConfig.live,
-        ForecastController.live,
+object Main extends IOApp.Simple {
+
+  /** FIXME
+   *    - Add alerts to response
+   *    - FIX THE README
+    *   - Manually test everything
+    *   - Fix tests (and add if missing any)
+    *   - Decide if going to use Eithers (and monad transformers) or not
+    *   - Make sure requirements are met still
+    */
+
+  private val webClient: Resource[IO, Client[IO]] = EmberClientBuilder
+    .default[IO]
+    .withRetryPolicy(ClientRetry.exponentialRetry(3.seconds, 2))
+    .build
+
+  private def buildWebServer(
+      port: Int,
+      routes: HttpApp[IO]
+  ): Resource[IO, Server] =
+    EmberServerBuilder
+      .default[IO]
+      .withPort(
+        Port.fromInt(port).getOrElse(Port.fromInt(8080).get)
       )
+      .withHttpApp(routes)
+      .build
+
+  override def run: IO[Unit] = {
+    val defaultClock: Clock[IO] = cats.effect.Clock[IO]
+
+    (for {
+      client <- webClient
+      config <- ApplicationConfig.build[IO]()
+      harness <- Harness.default[IO](config, client, defaultClock)
+      server <- buildWebServer(config.port, harness.app)
+    } yield server).useForever.void
+  }
 }

@@ -1,21 +1,21 @@
 package com.example.weatherservice.cache
 
-import zio.ZIO
-
 import java.time.Instant
 
-trait Cache[K, V] {
+trait Cache[F[_], K, V] {
+  
+  // FIXME Add docs
+
   // Get cache value from key
-  def get(key: K): ZIO[Any, Nothing, Option[V]]
+  def get(key: K): F[Option[V]]
 
   // Note: defaults to never expire
   def set(
       key: K,
-      value: V,
-      expireTime: Instant = Instant.MAX,
-    ): ZIO[Any, Nothing, Unit]
+      value: V
+  )(using CacheExpiryProtocol): F[Unit]
 
-  def clear(): ZIO[Any, Nothing, Unit]
+  def clear(): F[Unit]
 }
 
 object Cache {

@@ -1,5 +1,9 @@
 package com.example.weatherservice.domain
 
+import cats.syntax.all.*
+import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
+import io.circe.{Codec, Decoder, Encoder}
+
 import scala.util.control.NoStackTrace
 
 object geography {
@@ -16,7 +20,15 @@ object geography {
       Either.cond(
         Math.abs(latitude) <= MAX_LAT,
         new Latitude(latitude) {},
-        InvalidPoint(s"Latitude $latitude is invalid. Value must be between +/- $MAX_LAT"),
+        InvalidPoint(
+          s"Latitude $latitude is invalid. Value must be between +/- $MAX_LAT"
+        )
+      )
+
+    given Encoder[Latitude] = Encoder.encodeDouble.contramap(_.value)
+    given Decoder[Latitude] =
+      Decoder.decodeDouble.emap(d =>
+        Latitude.make(d).leftMap(_.getLocalizedMessage)
       )
   }
 
@@ -25,17 +37,33 @@ object geography {
     def make(longitude: Double): Either[GeographyError, Longitude] = Either.cond(
       Math.abs(longitude) <= MAX_LONG,
       new Longitude(longitude) {},
-      InvalidPoint(s"Longitude $longitude is invalid. Value must be between +/- $MAX_LONG"),
+      InvalidPoint(
+        s"Longitude $longitude is invalid. Value must be between +/- $MAX_LONG"
+      )
     )
+
+    given Encoder[Longitude] = Encoder.encodeDouble.contramap(_.value)
+
+    given Decoder[Longitude] =
+      Decoder.decodeDouble.emap(d =>
+        Longitude.make(d).leftMap(_.getLocalizedMessage)
+      )
   }
 
   // Note: There are certainly libraries that do this far better than
   // I do here, but both wanted to move quickly and minimize dependencies
   case class GeographicPoint(lat: Latitude, long: Longitude)
   object GeographicPoint {
-    def make(latitude: Double, longitude: Double): Either[GeographyError, GeographicPoint] = for {
+
+    def make(
+        latitude: Double,
+        longitude: Double
+    ): Either[GeographyError, GeographicPoint] = for {
       lat <- Latitude.make(latitude)
       long <- Longitude.make(longitude)
     } yield GeographicPoint(lat, long)
+
+    given Encoder[GeographicPoint] = deriveEncoder[GeographicPoint]
+    given Decoder[GeographicPoint] = deriveDecoder[GeographicPoint]
   }
 }

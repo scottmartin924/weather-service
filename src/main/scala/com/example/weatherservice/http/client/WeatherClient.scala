@@ -1,118 +1,98 @@
 package com.example.weatherservice.http.client
 
-import com.example.weatherservice.config.ApplicationConfig
-import com.example.weatherservice.domain.client._
+import cats.data.EitherT
+import cats.effect.kernel.{Async, Sync}
+import cats.syntax.all.*
+import com.example.weatherservice.config.{ApplicationConfig, LoggingUtil}
+import com.example.weatherservice.domain.client.*
 import com.example.weatherservice.domain.geography.GeographicPoint
+import com.example.weatherservice.domain.geography.GeographicPoint.*
 import com.example.weatherservice.resource.health.HealthStatus
-import io.circe.{parser, Json}
-import zhttp.http.{Headers, Method, Response, Status}
-import zhttp.service.{ChannelFactory, Client, EventLoopGroup}
-import zio.ZIO.{logDebug, logError, logInfo}
-import zio.{ZIO, ZLayer}
+import io.circe.{Json, parser}
+import org.http4s.{Headers, Method, ParseResult, Request, Response, Status, Uri}
+import org.http4s.client.Client
+import org.http4s.circe.*
+import org.http4s.circe.CirceEntityCodec.*
 
-trait WeatherClient {
+// TODO Do we want Either or EitherT
+trait WeatherClient[F[_]] {
   // Note: We _do not_ use the forecast that gives the url of the forecast for the point (can discuss why)
   def retrieveGeographicPointInfo(
-      point: GeographicPoint,
-    ): ZIO[Any, Throwable, WeatherGridPoint]
+      point: GeographicPoint
+  ): F[WeatherGridPoint]
   def retrieveForecast(
-      point: WeatherGridPoint,
-    ): ZIO[Any, Throwable, WeatherReport]
-  def health: ZIO[Any, Throwable, HealthStatus]
+      point: WeatherGridPoint
+  ): F[WeatherReport]
+  def health: F[HealthStatus]
 }
 
 object WeatherClient {
   private val APP_ID_HEADER = "User-Agent"
-  type ClientReqs = EventLoopGroup with ChannelFactory
 
-  case class ZioWeatherClient(
-      config: ApplicationConfig,
-      eventLoopGroup: EventLoopGroup,
-      channelFactory: ChannelFactory,
-    ) extends WeatherClient {
-    private val defaultHeaders = Headers(APP_ID_HEADER -> config.appId)
+  def apply[F[_]: Async](
+      client: Client[F],
+      config: ApplicationConfig
+  ): WeatherClient[F] = new WeatherClient[F] with LoggingUtil[F] {
 
-    // This is odd...there's almost certainly a better way to do this
-    private val requestEnv = ZLayer.succeed(eventLoopGroup) ++ ZLayer.succeed(channelFactory)
+    private val defaultHeaders: Headers = Headers(APP_ID_HEADER -> config.appId)
+    private val healthUri: ParseResult[Uri] =
+      Uri.fromString(config.healthEndpoint)
 
-    private def gridUrlForPoint(point: GeographicPoint) =
-      s"${config.pointEndpoint}/${point.lat.value},${point.long.value}"
+    private def gridUrlForPoint(
+        point: GeographicPoint
+    ): Either[Throwable, Uri] =
+      Uri
+        .fromString(
+          s"${config.pointEndpoint}/${point.lat.value},${point.long.value}"
+        )
+        .leftMap(e => Throwable(s"Could not create grid url for point: $e"))
 
-    private def forecastUrlForPoint(point: WeatherGridPoint) =
-      s"${config.forecastEndpoint}/${point.id.value}/${point.gridX.value},${point.gridY.value}/forecast"
-
-    // Convert Client response body to json if request was successful else fail the ZIO
-    private def responseAsJson(response: Response, url: String): ZIO[Any, Throwable, Json] =
-      if (response.status.isSuccess)
-        response.bodyAsString.flatMap { responseStr =>
-          parser.parse(responseStr) match {
-            case Right(json) => ZIO.succeed(json)
-            case Left(err) =>
-              logError(err.message) *> ZIO.fail(MalformedResponseEntity(err.message))
-          }
-        }
-      else
-        response
-          .bodyAsString
-          .flatMap(errBody => ZIO.fail(BadResponseStatus(url, response.status, errBody)))
+    private def forecastUrlForPoint(
+        point: WeatherGridPoint
+    ): Either[Throwable, Uri] =
+      Uri
+        .fromString(
+          s"${config.forecastEndpoint}/${point.id.value}/${point.gridX.value},${point.gridY.value}/forecast"
+        )
+        .leftMap(e => Throwable(s"Could not create forecast url for point: $e"))
 
     override def retrieveGeographicPointInfo(
-        point: GeographicPoint,
-      ): ZIO[Any, Throwable, WeatherGridPoint] =
-      for {
-        _ <- logInfo(s"Converting $point to grid")
-        url <- ZIO.succeed(gridUrlForPoint(point))
-        response <- Client
-          .request(
-            url,
-            headers = defaultHeaders,
-            method = Method.GET,
-          )
-          .provide(requestEnv)
-        _ <- logDebug(s"Response for call to $url: $response")
-        pointJsonResponse <- responseAsJson(response, url)
-        point <- ZIO.fromEither(WeatherGridPoint.fromPointResponse(pointJsonResponse))
-      } yield point
+        point: GeographicPoint
+    ): F[WeatherGridPoint] = for {
+      _ <- logger.info(s"Converting $point to grid")
+      uri <- Async[F].fromEither(gridUrlForPoint(point))
+      // FIXME Make expectOr I think and do error handling
+      // FIXME get straight to weatherGridPoint
+      jsonResponse <- client.expect[Json](uri)
+      point <- Async[F].fromEither(
+        WeatherGridPoint.fromPointResponse(jsonResponse)
+      )
+    } yield point
 
-    override def retrieveForecast(
-        gridPoint: WeatherGridPoint,
-      ): ZIO[Any, Throwable, WeatherReport] =
+    override def retrieveForecast(point: WeatherGridPoint): F[WeatherReport] =
       for {
-        _ <- logInfo(s"Retrieving forecast for $gridPoint")
-        url <- ZIO.succeed(forecastUrlForPoint(gridPoint))
-        response <- Client
-          .request(
-            url,
-            headers = defaultHeaders,
-            method = Method.GET,
-          )
-          .provide(requestEnv)
-        _ <- logDebug(s"Response for call to $url: $response")
-        forecastJsonResponse <- responseAsJson(response, url)
-        report <- ZIO.fromEither(WeatherReport.fromForecastResponse(forecastJsonResponse))
+        _ <- logger.info(s"Retrieving forecast for $point")
+        uri <- Async[F].fromEither(forecastUrlForPoint(point))
+        // FIXME expectOr
+        jsonResponse <- client.expect[Json](uri)
+        report <- Async[F].fromEither(
+          WeatherReport.fromForecastResponse(jsonResponse)
+        )
       } yield report
 
-    override def health: ZIO[Any, Throwable, HealthStatus] =
-      for {
-        response <- Client
-          .request(
-            config.healthEndpoint,
-            headers = defaultHeaders,
-            method = Method.GET,
-          )
-          .provide(requestEnv)
-        healthStatus <- response.status match {
-          case Status.Ok => ZIO.succeed(HealthStatus.OK)
-          case _         => ZIO.succeed(HealthStatus.UNAVAILABLE)
+    override def health: F[HealthStatus] = for {
+      uri <- Async[F].fromEither(healthUri)
+      request = Request[F](
+        uri = uri,
+        headers = defaultHeaders,
+        method = Method.GET
+      )
+      status <- client.run(request).use { (response: Response[F]) =>
+        response.status match {
+          case Status.Ok => HealthStatus.OK.pure
+          case _         => HealthStatus.UNAVAILABLE.pure
         }
-      } yield healthStatus
-  }
-
-  val live = ZLayer {
-    for {
-      config <- ZIO.service[ApplicationConfig]
-      eventLoopGroup <- ZIO.service[EventLoopGroup]
-      channelFact <- ZIO.service[ChannelFactory]
-    } yield ZioWeatherClient(config, eventLoopGroup, channelFact)
+      }
+    } yield status
   }
 }

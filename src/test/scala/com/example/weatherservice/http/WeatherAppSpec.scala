@@ -1,9 +1,9 @@
 package com.example.weatherservice.http
 
 import com.example.weatherservice.cache.WeatherCache
-import com.example.weatherservice.controller.ForecastController
+import com.example.weatherservice.handler.ForecastHandler
 import com.example.weatherservice.domain.client._
-import com.example.weatherservice.http.app.WeatherHttpApp
+import com.example.weatherservice.http.routes.WeatherRoutes
 import com.example.weatherservice.http.client.CacheableWeatherClient
 import com.example.weatherservice.http.client.TestClients.{
   badResponseStatusClient,
@@ -39,14 +39,14 @@ object WeatherAppSpec extends ZIOSpecDefault {
       val request =
         Request(url = URL(!! / "forecast").setQueryParams(queryParams), method = Method.GET)
       for {
-        result <- WeatherHttpApp.app(request)
+        result <- WeatherRoutes.app(request)
         bodyResponse <- result.bodyAsString
       } yield assertTrue(result.status == Status.Ok) && assertTrue(
         bodyResponse.contains(fakeForecast.forecast.value),
       )
     }.provide(
       WeatherCache.inMemoryWeatherCache,
-      ForecastController.live,
+      ForecastHandler.live,
       ForecastService.live,
       CacheableWeatherClient.live,
       ZLayer.succeed(TemperatureClassifier.defaultClassifier),
@@ -59,11 +59,11 @@ object WeatherAppSpec extends ZIOSpecDefault {
       val request =
         Request(url = URL(!! / "forecast").setQueryParams(queryParams), method = Method.GET)
       for {
-        result <- WeatherHttpApp.app(request)
+        result <- WeatherRoutes.app(request)
       } yield assertTrue(result.status == Status.BadRequest)
     }.provide(
       WeatherCache.inMemoryWeatherCache,
-      ForecastController.live,
+      ForecastHandler.live,
       ForecastService.live,
       CacheableWeatherClient.live,
       ZLayer.succeed(TemperatureClassifier.defaultClassifier),
@@ -76,11 +76,11 @@ object WeatherAppSpec extends ZIOSpecDefault {
       val request =
         Request(url = URL(!! / "forecast").setQueryParams(queryParams), method = Method.GET)
       for {
-        result <- WeatherHttpApp.app(request)
+        result <- WeatherRoutes.app(request)
       } yield assertTrue(result.status == Status.BadRequest)
     }.provide(
       WeatherCache.inMemoryWeatherCache,
-      ForecastController.live,
+      ForecastHandler.live,
       ForecastService.live,
       CacheableWeatherClient.live,
       ZLayer.succeed(TemperatureClassifier.defaultClassifier),
@@ -93,13 +93,13 @@ object WeatherAppSpec extends ZIOSpecDefault {
         Request(url = URL(!! / "forecast").setQueryParams(queryParams), method = Method.GET)
       for {
         // Have to fork here to adjust test clock
-        resultFiber <- WeatherHttpApp.app(request).fork
+        resultFiber <- WeatherRoutes.app(request).fork
         _ <- TestClock.adjust(1.second)
         result <- resultFiber.join
       } yield assertTrue(result.status == Status.BadGateway)
     }.provide(
       WeatherCache.inMemoryWeatherCache,
-      ForecastController.live,
+      ForecastHandler.live,
       ForecastService.live,
       CacheableWeatherClient.live,
       ZLayer.succeed(TemperatureClassifier.defaultClassifier),
@@ -112,13 +112,13 @@ object WeatherAppSpec extends ZIOSpecDefault {
         Request(url = URL(!! / "forecast").setQueryParams(queryParams), method = Method.GET)
       for {
         // Have to fork here to adjust test clock
-        resultFiber <- WeatherHttpApp.app(request).fork
+        resultFiber <- WeatherRoutes.app(request).fork
         _ <- TestClock.adjust(1.second)
         result <- resultFiber.join
       } yield assertTrue(result.status == errorResponseStatus)
     }.provide(
       WeatherCache.inMemoryWeatherCache,
-      ForecastController.live,
+      ForecastHandler.live,
       ForecastService.live,
       CacheableWeatherClient.live,
       ZLayer.succeed(TemperatureClassifier.defaultClassifier),
@@ -131,13 +131,13 @@ object WeatherAppSpec extends ZIOSpecDefault {
         Request(url = URL(!! / "forecast").setQueryParams(queryParams), method = Method.GET)
       for {
         // Have to fork here to adjust test clock
-        resultFiber <- WeatherHttpApp.app(request).fork
+        resultFiber <- WeatherRoutes.app(request).fork
         _ <- TestClock.adjust(1.second)
         result <- resultFiber.join
       } yield assertTrue(result.status == Status.InternalServerError)
     }.provide(
       WeatherCache.inMemoryWeatherCache,
-      ForecastController.live,
+      ForecastHandler.live,
       ForecastService.live,
       CacheableWeatherClient.live,
       ZLayer.succeed(TemperatureClassifier.defaultClassifier),

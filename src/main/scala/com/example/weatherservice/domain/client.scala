@@ -1,11 +1,14 @@
 package com.example.weatherservice.domain
 
+import cats.syntax.all.*
+import io.circe.generic.semiauto.deriveEncoder
 import io.circe.optics.JsonPath.root
-import io.circe.{Decoder, HCursor, Json}
-import zhttp.http.Status
+import io.circe.{Decoder, Encoder, HCursor, Json}
+import org.http4s.{EntityDecoder, Status}
 
 import java.time.ZonedDateTime
 import scala.util.control.NoStackTrace
+import org.http4s.circe.CirceEntityDecoder
 
 object client {
   sealed trait ClientError extends NoStackTrace
@@ -15,8 +18,15 @@ object client {
   case class BadResponseStatus(
       request: String,
       status: Status,
-      body: String,
-    ) extends ClientError
+      body: String
+  ) extends ClientError
+
+  object BadResponseStatus {
+
+    given Encoder[Status] = Encoder.encodeInt.contramap(_.code)
+
+    given Encoder[BadResponseStatus] = deriveEncoder[BadResponseStatus]
+  }
 
   case class GridId(value: String) extends AnyVal
   case class XCoordinate(value: Int) extends AnyVal
@@ -25,8 +35,8 @@ object client {
   case class WeatherGridPoint(
       id: GridId,
       gridX: XCoordinate,
-      gridY: YCoordinate,
-    )
+      gridY: YCoordinate
+  )
 
   object WeatherGridPoint {
     implicit val weatherGridPointDecoder: Decoder[WeatherGridPoint] =
@@ -39,15 +49,21 @@ object client {
 
     def fromPointResponse(json: Json): Either[ClientError, WeatherGridPoint] =
       for {
-        properties <- root
-          .properties
-          .json
-          .getOption(json)
-          .toRight(MalformedResponseEntity(s"Missing properties field in points response: $json"))
+        properties <- json.hcursor
+          .downField("properties")
+          .as[Json]
+          .leftMap(err =>
+            MalformedResponseEntity(
+              s"Missing properties field in points response. Error: ${err} on json: $json"
+            )
+          )
         gridPoint <- properties
           .as[WeatherGridPoint]
-          .left
-          .map(err => MalformedResponseEntity(s"Failed to parse point response: ${err.message}"))
+          .leftMap(err =>
+            MalformedResponseEntity(
+              s"Failed to parse point response: ${err.message}"
+            )
+          )
       } yield gridPoint
   }
 
@@ -58,8 +74,8 @@ object client {
       temperature: Int,
       forecast: ForecastDescription,
       start: ForecastStartTime,
-      end: ForecastEndTime,
-    )
+      end: ForecastEndTime
+  )
   object WeatherReport {
     // Decoder for a weather report from a given "period" response entity
     implicit def decoder: Decoder[WeatherReport] = (c: HCursor) =>
@@ -72,24 +88,30 @@ object client {
         temp,
         ForecastDescription(forecast),
         ForecastStartTime(start),
-        ForecastEndTime(end),
+        ForecastEndTime(end)
       )
 
     def fromForecastResponse(json: Json): Either[ClientError, WeatherReport] = {
       // Finds period with number = 1 (so the "current" period)...theoretically...almost always :)
       val _currentPeriodOptic =
-        root.properties.periods.each.filter(root.selectDynamic("number").int.exist(_ == 1))
+        root.properties.periods.each
+          .filter(root.selectDynamic("number").int.exist(_ == 1))
       for {
-        currentPeriodWeather <- _currentPeriodOptic
-          .json
+        currentPeriodWeather <- _currentPeriodOptic.json
           .getAll(json)
           .headOption
-          .toRight(MalformedResponseEntity("Could not find current period in forecast response"))
+          .toRight(
+            MalformedResponseEntity(
+              "Could not find current period in forecast response"
+            )
+          )
         report <- currentPeriodWeather
           .as[WeatherReport]
           .left
           .map(err =>
-            MalformedResponseEntity(s"Failed to parse forecast response to report: ${err.message}"),
+            MalformedResponseEntity(
+              s"Failed to parse forecast response to report: ${err.message}"
+            ),
           )
       } yield report
     }

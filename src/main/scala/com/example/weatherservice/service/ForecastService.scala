@@ -1,57 +1,42 @@
 package com.example.weatherservice.service
 
+import cats.effect.kernel.Sync
+import cats.syntax.all.*
+import com.example.weatherservice.config.LoggingUtil
 import com.example.weatherservice.domain.client.WeatherGridPoint
 import com.example.weatherservice.domain.geography.GeographicPoint
-import com.example.weatherservice.http.client.CacheableWeatherClient
+import com.example.weatherservice.http.client.{
+  CacheableWeatherClient,
+  WeatherClient
+}
 import com.example.weatherservice.resource.forecast.WeatherReportResponse
-import com.example.weatherservice.retry.Retry
-import zio.ZIO.logInfo
-import zio.{ZIO, ZLayer}
 
 import scala.concurrent.duration.DurationInt
 
-trait ForecastService {
+trait ForecastService[F[_]] {
   def retrieveForecast(
-      point: GeographicPoint,
-    ): ZIO[Any, Throwable, WeatherReportResponse]
+      point: GeographicPoint
+  ): F[WeatherReportResponse]
 }
 
 object ForecastService {
-  class Service(
-      weatherClient: CacheableWeatherClient,
-      temperatureClassifier: TemperatureClassifier,
-    ) extends ForecastService {
-    // Note: Would want to tune these (or get rid of them) based on the behavior of the NOAA API
-    // Also, probably would only want to retry on certain statuses...this currently retries on everything
-    // (including for example a Too Many Requests response :( )
-    private val retryDelay = 100.millis
-    private val retryCount = 2
-    private def withRetry[R, E, A] =
-      Retry.fixedDelay.retry[R, E, A](retryDelay, retryCount, _: String) _
 
-    override def retrieveForecast(
-        point: GeographicPoint,
-      ): ZIO[Any, Throwable, WeatherReportResponse] =
-      for {
-        _ <- logInfo(s"Retrieve forecast for $point")
-        weatherGridPoint <- withRetry[Any, Throwable, WeatherGridPoint]("Get geographic point")(
-          weatherClient.retrieveGeographicPointInfo(point),
-        )
-        forecast <- withRetry("Get forecast for point")(
-          weatherClient.retrieveForecast(weatherGridPoint),
-        )
+  def apply[F[_]: Sync](
+      weatherClient: WeatherClient[F],
+      temperatureClassifier: TemperatureClassifier
+  ): ForecastService[F] =
+    new ForecastService[F] with LoggingUtil[F] {
+      override def retrieveForecast(
+          point: GeographicPoint
+      ): F[WeatherReportResponse] = for {
+        _ <- logger.info(s"Retrieve forecast for $point")
+        weatherGridPoint <- weatherClient.retrieveGeographicPointInfo(point)
+        forecast <- weatherClient.retrieveForecast(weatherGridPoint)
       } yield {
-        val tempDesc = temperatureClassifier.classify(forecast.temperature)
-        WeatherReportResponse(forecast = forecast.forecast.value, temperature = tempDesc)
+        WeatherReportResponse(
+          forecast = forecast.forecast.value,
+          temperature = temperatureClassifier.classify(forecast.temperature)
+        )
       }
-  }
-
-  val live
-      : ZLayer[CacheableWeatherClient with TemperatureClassifier, Any, ForecastService.Service] =
-    ZLayer {
-      for {
-        client <- ZIO.service[CacheableWeatherClient]
-        classifier <- ZIO.service[TemperatureClassifier]
-      } yield new Service(client, classifier)
     }
 }

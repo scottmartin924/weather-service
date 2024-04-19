@@ -1,19 +1,21 @@
 package com.example.weatherservice.config
 
-import zio.config._
-import zio.config.derivation.name
-import zio.config.magnolia.descriptor
+import cats.effect.{Resource, Sync}
+import pureconfig.ConfigSource
+import pureconfig.*
+import pureconfig.module.catseffect.syntax.*
+import pureconfig.generic.derivation.default.*
 
 case class ApplicationConfig(
     appId: String,
-    @name("weatherHealthEndpoint") healthEndpoint: String,
+    healthEndpoint: String,
     pointEndpoint: String,
     forecastEndpoint: String,
-    port: Int,
-  )
+    port: Int
+) derives ConfigReader
 
 object ApplicationConfig {
-  private val appConfig: ConfigDescriptor[ApplicationConfig] = descriptor[ApplicationConfig]
-  val live = ZConfig
-    .fromPropertiesFile("src/main/resources/application.properties", appConfig)
+
+  def build[F[_]: Sync](): Resource[F, ApplicationConfig] =
+    Resource.eval(ConfigSource.default.loadF[F, ApplicationConfig]())
 }
