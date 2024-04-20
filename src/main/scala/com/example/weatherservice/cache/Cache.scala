@@ -3,13 +3,13 @@ package com.example.weatherservice.cache
 import java.time.Instant
 
 trait Cache[F[_], K, V] {
-  
-  // FIXME Add docs
 
-  // Get cache value from key
+  /** Get value from cache if present, else None
+    */
   def get(key: K): F[Option[V]]
 
-  // Note: defaults to never expire
+  /** Set the value in a cache
+    */
   def set(
       key: K,
       value: V

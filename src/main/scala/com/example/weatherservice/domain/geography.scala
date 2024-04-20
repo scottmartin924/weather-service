@@ -2,8 +2,9 @@ package com.example.weatherservice.domain
 
 import cats.syntax.all.*
 import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
-import io.circe.{Codec, Decoder, Encoder}
+import io.circe.{Decoder, Encoder}
 
+import scala.math.BigDecimal.RoundingMode
 import scala.util.control.NoStackTrace
 
 object geography {
@@ -14,12 +15,22 @@ object geography {
   sealed abstract case class Latitude private (value: Double)
   sealed abstract case class Longitude private (value: Double)
 
+  // TOD HACK to handle weather.gove API's weird 301 on too high precision values which is odd..not sure how else to handle
+  private val MAX_PRECISION_SCALE = 4
+
+  /** Set coordinate values to max precision which weather.gov will return
+    * results for. Both stylistically annoying, but also slow to have to make
+    * BigDecimals all the time
+    */
+  private def setCoordinatePrecision(d: Double): Double =
+    BigDecimal(d).setScale(MAX_PRECISION_SCALE, RoundingMode.HALF_EVEN).toDouble
+
   object Latitude {
     private val MAX_LAT = 90
     def make(latitude: Double): Either[GeographyError, Latitude] =
       Either.cond(
         Math.abs(latitude) <= MAX_LAT,
-        new Latitude(latitude) {},
+        new Latitude(setCoordinatePrecision(latitude)) {},
         InvalidPoint(
           s"Latitude $latitude is invalid. Value must be between +/- $MAX_LAT"
         )
@@ -34,13 +45,14 @@ object geography {
 
   object Longitude {
     private val MAX_LONG = 180
-    def make(longitude: Double): Either[GeographyError, Longitude] = Either.cond(
-      Math.abs(longitude) <= MAX_LONG,
-      new Longitude(longitude) {},
-      InvalidPoint(
-        s"Longitude $longitude is invalid. Value must be between +/- $MAX_LONG"
+    def make(longitude: Double): Either[GeographyError, Longitude] =
+      Either.cond(
+        Math.abs(longitude) <= MAX_LONG,
+        new Longitude(setCoordinatePrecision(longitude)) {},
+        InvalidPoint(
+          s"Longitude $longitude is invalid. Value must be between +/- $MAX_LONG"
+        )
       )
-    )
 
     given Encoder[Longitude] = Encoder.encodeDouble.contramap(_.value)
 

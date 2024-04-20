@@ -1,76 +1,91 @@
 package com.example.weatherservice.cache
 
-import com.example.weatherservice.domain.client._
-import zio.test.{assertTrue, Spec, TestClock, TestEnvironment, ZIOSpecDefault}
-import zio.{Scope, ZIO}
+import cats.effect.{IO, Ref}
+import com.example.weatherservice.domain.client.*
+import munit.CatsEffectSuite
 
-import java.time.ZonedDateTime
+import java.time.{Instant, ZonedDateTime}
 import java.time.temporal.ChronoUnit
+import scala.concurrent.duration.DurationInt
 
-object WeatherCacheSpec extends ZIOSpecDefault {
-  private val weatherCache = WeatherCache.inMemoryWeatherCache
-  override def spec: Spec[TestEnvironment with Scope, Any] = suite("WeatherCacheSpec")(
-    test("can insert and retrieve from cache") {
-      val now = ZonedDateTime.now()
-      val gridPoint = WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
-      val report = WeatherReport(
-        temperature = 20,
-        forecast = ForecastDescription("Partly cloudy"),
-        start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
-        end = ForecastEndTime(now.plus(20, ChronoUnit.MINUTES)),
-      )
-      for {
-        cache <- ZIO.service[WeatherCache]
-        _ <- cache.set(gridPoint, report)
-        response <- cache.get(gridPoint)
-      } yield assertTrue(response.nonEmpty) && assertTrue(response.get == report)
-    }.provideLayer(weatherCache),
-    test("cache key misses if GridPoint changed") {
-      val now = ZonedDateTime.now()
-      val gridPoint = WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
-      val report = WeatherReport(
-        temperature = 20,
-        forecast = ForecastDescription("Partly cloudy"),
-        start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
-        end = ForecastEndTime(now.plus(20, ChronoUnit.MINUTES)),
-      )
-      for {
-        cache <- ZIO.service[WeatherCache]
-        _ <- cache.set(gridPoint, report)
-        response <- cache.get(gridPoint.copy(id = GridId("new")))
-      } yield assertTrue(response.isEmpty)
-    }.provideLayer(weatherCache),
-    test("cache entry expires") {
-      val now = ZonedDateTime.now()
-      val gridPoint = WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
-      val report = WeatherReport(
-        temperature = 20,
-        forecast = ForecastDescription("Partly cloudy"),
-        start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
-        end = ForecastEndTime(now.plus(20, ChronoUnit.MINUTES)),
-      )
-      for {
-        cache <- ZIO.service[WeatherCache]
-        _ <- TestClock.setTime(now.toInstant)
-        _ <- cache.set(gridPoint, report, expireTime = now.toInstant.minus(200, ChronoUnit.MILLIS))
-        response <- cache.get(gridPoint)
-      } yield assertTrue(response.isEmpty)
-    }.provideLayer(weatherCache),
-    test("cache entry not found if outside the forecasts time window") {
-      val now = ZonedDateTime.now()
-      val gridPoint = WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
-      val report = WeatherReport(
-        temperature = 20,
-        forecast = ForecastDescription("Partly cloudy"),
-        start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
-        end = ForecastEndTime(now.minus(10, ChronoUnit.MINUTES)),
-      )
-      for {
-        _ <- TestClock.setTime(now.toInstant)
-        cache <- ZIO.service[WeatherCache]
-        _ <- cache.set(gridPoint, report)
-        response <- cache.get(gridPoint)
-      } yield assertTrue(response.isEmpty)
-    }.provideLayer(weatherCache),
-  )
+class WeatherCacheSpec extends CatsEffectSuite {
+
+  val expireProtocol = CacheExpiryProtocol.forDuration(1.second)
+
+  test("can insert and retrieve from cache") {
+    val now = ZonedDateTime.now()
+    val gridPoint =
+      WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
+    val report = WeatherReport(
+      temperature = 20,
+      forecast = ForecastDescription("Partly cloudy"),
+      start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
+      end = ForecastEndTime(now.plus(20, ChronoUnit.MINUTES))
+    )
+
+    val clock = TestClock.constantTimeClock[IO](now.toInstant)
+    given CacheExpiryProtocol = expireProtocol
+
+    WeatherCache
+      .inMemoryCache(clock)
+      .use { cache =>
+        for {
+          _ <- cache.set(gridPoint, report)
+          response <- cache.get(gridPoint)
+        } yield {
+          assert(response.nonEmpty)
+          assertEquals(response.get, report)
+        }
+      }
+  }
+
+  test("cache key misses when GridPoint not present") {
+    val now = ZonedDateTime.now()
+    val gridPoint =
+      WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
+    val report = WeatherReport(
+      temperature = 20,
+      forecast = ForecastDescription("Partly cloudy"),
+      start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
+      end = ForecastEndTime(now.plus(20, ChronoUnit.MINUTES))
+    )
+
+    val clock = TestClock.constantTimeClock[IO](now.toInstant)
+    given CacheExpiryProtocol = expireProtocol
+
+    WeatherCache
+      .inMemoryCache(clock)
+      .use { cache =>
+        for {
+          _ <- cache.set(gridPoint, report)
+          response <- cache.get(gridPoint.copy(id = GridId("bad")))
+        } yield {
+          assert(response.isEmpty)
+        }
+      }
+  }
+
+  test("cache entry expires") {
+    val now = ZonedDateTime.now()
+    val gridPoint =
+      WeatherGridPoint(GridId("test"), XCoordinate(0), YCoordinate(0))
+    val report = WeatherReport(
+      temperature = 20,
+      forecast = ForecastDescription("Partly cloudy"),
+      start = ForecastStartTime(now.minus(20, ChronoUnit.MINUTES)),
+      end = ForecastEndTime(now.plus(20, ChronoUnit.MINUTES))
+    )
+
+    given CacheExpiryProtocol = expireProtocol
+
+    for {
+      ref <- Ref.of[IO, Instant](now.toInstant)
+      clock = TickableClock.make(ref)
+      result <- WeatherCache.inMemoryCache(clock).use { cache =>
+        cache.set(gridPoint, report) *>
+          clock.advanceByDuration(5.minutes) *>
+          cache.get(gridPoint)
+      }
+    } yield assert(result.isEmpty)
+  }
 }

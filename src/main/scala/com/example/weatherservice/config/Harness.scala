@@ -1,7 +1,8 @@
 package com.example.weatherservice.config
 
+import cats.Parallel
 import cats.syntax.all.*
-import cats.effect.{Clock, Resource, Sync, Temporal}
+import cats.effect.{Clock, Resource, Sync}
 import cats.effect.kernel.Async
 import com.example.weatherservice.cache.WeatherCache
 import com.example.weatherservice.handler.ForecastHandler
@@ -34,7 +35,7 @@ object Harness {
   ) =
     (WeatherRoutes(forecastHandler) <+> HealthRoutes(weatherClient)).orNotFound
 
-  def default[F[_]: Async](
+  def default[F[_]: Async: Parallel](
       config: ApplicationConfig,
       client: Client[F],
       clock: Clock[F]

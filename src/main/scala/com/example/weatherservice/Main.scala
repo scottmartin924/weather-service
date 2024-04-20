@@ -4,9 +4,8 @@ import cats.effect.{Clock, IO, IOApp, Resource}
 import com.comcast.ip4s.Port
 import com.example.weatherservice.config.{ApplicationConfig, Harness}
 import com.example.weatherservice.retry.ClientRetry
-import org.http4s.{HttpApp, HttpRoutes}
+import org.http4s.HttpApp
 import org.http4s.client.Client
-import org.http4s.client.middleware.{Retry, RetryPolicy}
 import org.http4s.ember.client.EmberClientBuilder
 import org.http4s.ember.server.EmberServerBuilder
 import org.http4s.server.Server
@@ -14,15 +13,6 @@ import org.http4s.server.Server
 import scala.concurrent.duration.DurationInt
 
 object Main extends IOApp.Simple {
-
-  /** FIXME
-   *    - Add alerts to response
-   *    - FIX THE README
-    *   - Manually test everything
-    *   - Fix tests (and add if missing any)
-    *   - Decide if going to use Eithers (and monad transformers) or not
-    *   - Make sure requirements are met still
-    */
 
   private val webClient: Resource[IO, Client[IO]] = EmberClientBuilder
     .default[IO]

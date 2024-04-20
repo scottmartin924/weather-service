@@ -16,6 +16,8 @@ import scala.concurrent.duration.DurationInt
 
 object CacheableWeatherClient {
 
+  /** A weather client which caches (some of) the returned results
+    */
   def create[F[_]: Sync](
       weatherClient: WeatherClient[F],
       cache: WeatherCache[F],
@@ -26,11 +28,11 @@ object CacheableWeatherClient {
     given CacheExpiryProtocol = cacheExpiryProtocol
 
     // Note: We don't cache long/lat to grid points but we could (might be tricky though since would want to give jitter probably)
-    override def retrieveGeographicPointInfo(
+    override def fetchGeographicPointInfo(
         point: GeographicPoint
-    ): F[WeatherGridPoint] = weatherClient.retrieveGeographicPointInfo(point)
+    ): F[WeatherGridPoint] = weatherClient.fetchGeographicPointInfo(point)
 
-    override def retrieveForecast(point: WeatherGridPoint): F[WeatherReport] =
+    override def fetchForecast(point: WeatherGridPoint): F[WeatherReport] =
       for {
         cachedReport <- cache.get(point)
         report <- cachedReport match {
@@ -39,12 +41,17 @@ object CacheableWeatherClient {
           case None =>
             for {
               _ <- logger.info(s"Cache miss for $point")
-              forecast <- weatherClient.retrieveForecast(point)
+              forecast <- weatherClient.fetchForecast(point)
               _ <- cache.set(point, forecast)
             } yield forecast
         }
       } yield report
 
     override def health: F[HealthStatus] = weatherClient.health
+
+    // TODO Should be caching this too, but just didn't
+    override def fetchAlerts(
+        point: GeographicPoint
+    ): F[List[client.WeatherAlert]] = weatherClient.fetchAlerts(point)
   }
 }

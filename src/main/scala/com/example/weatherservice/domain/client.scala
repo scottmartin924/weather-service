@@ -1,14 +1,13 @@
 package com.example.weatherservice.domain
 
 import cats.syntax.all.*
-import io.circe.generic.semiauto.deriveEncoder
+import io.circe.generic.semiauto.{deriveDecoder, deriveEncoder}
 import io.circe.optics.JsonPath.root
 import io.circe.{Decoder, Encoder, HCursor, Json}
-import org.http4s.{EntityDecoder, Status}
+import org.http4s.Status
 
 import java.time.ZonedDateTime
 import scala.util.control.NoStackTrace
-import org.http4s.circe.CirceEntityDecoder
 
 object client {
   sealed trait ClientError extends NoStackTrace
@@ -114,6 +113,54 @@ object client {
             ),
           )
       } yield report
+    }
+  }
+
+  case class WeatherAlert(
+      event: String,
+      headline: String
+  )
+
+  object WeatherAlert {
+    given Encoder[WeatherAlert] = deriveEncoder[WeatherAlert]
+    given Decoder[WeatherAlert] = deriveDecoder[WeatherAlert]
+
+    def fromAlertJson(json: Json): Either[ClientError, WeatherAlert] = {
+      val _alertEventOptic = root.properties.event.string
+      val _alertHeadlineOption = root.properties.headline.string
+
+      for {
+        event <- _alertEventOptic
+          .getOption(json)
+          .toRight(
+            MalformedResponseEntity(
+              s"Did not find event string in alert json"
+            )
+          )
+        headline <- _alertHeadlineOption
+          .getOption(json)
+          .toRight(
+            MalformedResponseEntity(
+              s"Did not find headline string in alert json"
+            )
+          )
+      } yield WeatherAlert(event, headline)
+    }
+
+    def fromAlertsListResponse(
+        json: Json
+    ): Either[ClientError, List[WeatherAlert]] = {
+      val _alertsArrayOptic = root.features.arr
+      for {
+        alertsArray <- _alertsArrayOptic
+          .getOption(json)
+          .toRight(
+            MalformedResponseEntity(
+              s"Did not find alerts array"
+            )
+          )
+        weatherAlerts <- alertsArray.traverse(fromAlertJson)
+      } yield weatherAlerts.toList
     }
   }
 }

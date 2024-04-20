@@ -9,6 +9,7 @@ val PureConfigVersion = "0.17.6"
 lazy val root = (project in file("."))
   .settings(
     name := "weather-service",
+    scalacOptions ++= Seq("-Wunused:all"),
     libraryDependencies ++= Seq(
       "org.typelevel" %% "cats-effect" % CatsEffectVersion,
       "org.typelevel" %% "cats-effect-kernel" % CatsEffectVersion,
@@ -24,6 +25,6 @@ lazy val root = (project in file("."))
       "com.github.pureconfig" %% "pureconfig-cats-effect" % PureConfigVersion,
       "org.typelevel" %% "log4cats-slf4j" % "2.6.0",
       "ch.qos.logback" % "logback-classic" % "1.5.6",
-      "org.typelevel" %% "munit-cats-effect-3" % "1.0.7" % "test,it"
+      "org.typelevel" %% "munit-cats-effect-3" % "1.0.7" % Test
     )
   )

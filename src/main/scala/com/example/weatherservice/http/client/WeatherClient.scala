@@ -1,28 +1,39 @@
 package com.example.weatherservice.http.client
 
-import cats.data.EitherT
-import cats.effect.kernel.{Async, Sync}
+import cats.effect.kernel.Async
 import cats.syntax.all.*
 import com.example.weatherservice.config.{ApplicationConfig, LoggingUtil}
 import com.example.weatherservice.domain.client.*
 import com.example.weatherservice.domain.geography.GeographicPoint
-import com.example.weatherservice.domain.geography.GeographicPoint.*
 import com.example.weatherservice.resource.health.HealthStatus
-import io.circe.{Json, parser}
+import io.circe.Json
 import org.http4s.{Headers, Method, ParseResult, Request, Response, Status, Uri}
 import org.http4s.client.Client
 import org.http4s.circe.*
-import org.http4s.circe.CirceEntityCodec.*
 
-// TODO Do we want Either or EitherT
+/** Client for interacting with weather NOAA API
+  */
 trait WeatherClient[F[_]] {
-  // Note: We _do not_ use the forecast that gives the url of the forecast for the point (can discuss why)
-  def retrieveGeographicPointInfo(
+
+  /** Find the weather grid point given a lat/long. This is required since most
+    * NOAA APIs require a specific coordinate format which is not lat/long
+    */
+  def fetchGeographicPointInfo(
       point: GeographicPoint
   ): F[WeatherGridPoint]
-  def retrieveForecast(
+
+  /** Retrieve the forecast for a given grid point
+    */
+  def fetchForecast(
       point: WeatherGridPoint
   ): F[WeatherReport]
+
+  /** Retrieve alerts for the given grid point
+    */
+  def fetchAlerts(
+      point: GeographicPoint
+  ): F[List[WeatherAlert]]
+
   def health: F[HealthStatus]
 }
 
@@ -38,43 +49,74 @@ object WeatherClient {
     private val healthUri: ParseResult[Uri] =
       Uri.fromString(config.healthEndpoint)
 
-    private def gridUrlForPoint(
+    private def defaultRequestForUri(uri: Uri): Request[F] =
+      Request[F](method = Method.GET, uri = uri, headers = defaultHeaders)
+
+    private def gridLocationRequestForPoint(
         point: GeographicPoint
-    ): Either[Throwable, Uri] =
+    ): Either[Throwable, Request[F]] =
       Uri
         .fromString(
           s"${config.pointEndpoint}/${point.lat.value},${point.long.value}"
         )
+        .map(defaultRequestForUri)
         .leftMap(e => Throwable(s"Could not create grid url for point: $e"))
 
-    private def forecastUrlForPoint(
+    private def forecastRequestForPoint(
         point: WeatherGridPoint
-    ): Either[Throwable, Uri] =
+    ): Either[Throwable, Request[F]] =
       Uri
         .fromString(
           s"${config.forecastEndpoint}/${point.id.value}/${point.gridX.value},${point.gridY.value}/forecast"
         )
+        .map(defaultRequestForUri)
         .leftMap(e => Throwable(s"Could not create forecast url for point: $e"))
 
-    override def retrieveGeographicPointInfo(
+    // https://api.weather.gov/alerts/active?point=30.30797326138821%2C-97.73987820204256
+    private def alertRequestForPoint(
+        point: GeographicPoint
+    ): Either[Throwable, Request[F]] = Uri
+      .fromString(
+        s"${config.alertsEndpoint}?point=${point.lat.value},${point.long.value}"
+      )
+      .map(defaultRequestForUri)
+      .leftMap(e => Throwable(s"Could not create alerts url for point: $e"))
+
+    private def handleRequestError(
+        request: Request[F]
+    )(response: Response[F]): F[Throwable] =
+      response.as[Json].map { json =>
+        BadResponseStatus(
+          request = s"${request.method} ${request.uri}",
+          status = response.status,
+          body = json.noSpaces
+        )
+      }
+
+    override def fetchGeographicPointInfo(
         point: GeographicPoint
     ): F[WeatherGridPoint] = for {
-      _ <- logger.info(s"Converting $point to grid")
-      uri <- Async[F].fromEither(gridUrlForPoint(point))
-      // FIXME Make expectOr I think and do error handling
-      // FIXME get straight to weatherGridPoint
-      jsonResponse <- client.expect[Json](uri)
+      request <- Async[F].fromEither(gridLocationRequestForPoint(point))
+      _ <- logger.info(
+        s"Converting $point to grid. Making request ${request.uri}"
+      )
+      jsonResponse <- client.expectOr[Json](request)(
+        handleRequestError(request)
+      )
       point <- Async[F].fromEither(
         WeatherGridPoint.fromPointResponse(jsonResponse)
       )
     } yield point
 
-    override def retrieveForecast(point: WeatherGridPoint): F[WeatherReport] =
+    override def fetchForecast(point: WeatherGridPoint): F[WeatherReport] =
       for {
-        _ <- logger.info(s"Retrieving forecast for $point")
-        uri <- Async[F].fromEither(forecastUrlForPoint(point))
-        // FIXME expectOr
-        jsonResponse <- client.expect[Json](uri)
+        request <- Async[F].fromEither(forecastRequestForPoint(point))
+        _ <- logger.info(
+          s"Retrieving forecast for $point. Making request ${request.uri}"
+        )
+        jsonResponse <- client.expectOr[Json](request)(
+          handleRequestError(request)
+        )
         report <- Async[F].fromEither(
           WeatherReport.fromForecastResponse(jsonResponse)
         )
@@ -94,5 +136,19 @@ object WeatherClient {
         }
       }
     } yield status
+
+    override def fetchAlerts(point: GeographicPoint): F[List[WeatherAlert]] =
+      for {
+        request <- Async[F].fromEither(alertRequestForPoint(point))
+        _ <- logger.info(
+          s"Retrieving alerts for point $point. Making request ${request.uri}"
+        )
+        alertsResponse <- client.expectOr[Json](request)(
+          handleRequestError(request)
+        )
+        alerts <- Async[F].fromEither(
+          WeatherAlert.fromAlertsListResponse(alertsResponse)
+        )
+      } yield alerts
   }
 }

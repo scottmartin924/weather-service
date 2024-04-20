@@ -10,8 +10,6 @@ import com.example.weatherservice.domain.client.{
   WeatherReport
 }
 
-import java.time.Instant
-
 trait WeatherCache[F[_]] extends Cache[F, WeatherGridPoint, WeatherReport]
 
 object WeatherCache {

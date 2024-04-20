@@ -13,8 +13,7 @@ import io.circe.generic.auto.*
 import io.circe.syntax.EncoderOps
 import org.http4s.Status
 import org.http4s.Status.Ok
-import org.http4s.dsl.Http4sDsl
-import org.http4s.{HttpRoutes, Request, Response}
+import org.http4s.{Request, Response}
 import org.http4s.dsl.impl.QueryParamDecoderMatcher
 import org.http4s.circe.CirceEntityCodec.*
 
@@ -34,7 +33,6 @@ object ForecastHandler {
   object LongCoordinateQueryParamDecoder
       extends QueryParamDecoderMatcher[Double]("long")
 
-  // FIXME Decide how we want this to work...probably
   def apply[F[_]: Sync](
       forecastService: ForecastService[F]
   ): ForecastHandler[F] = new ForecastHandler[F]:

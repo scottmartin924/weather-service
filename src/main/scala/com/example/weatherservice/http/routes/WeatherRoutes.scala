@@ -9,7 +9,6 @@ import com.example.weatherservice.handler.ForecastHandler.{
 import org.http4s.HttpRoutes
 import org.http4s.dsl.Http4sDsl
 import org.http4s.dsl.*
-import org.http4s.dsl.io.*
 
 object WeatherRoutes {
   def apply[F[_]: Sync](

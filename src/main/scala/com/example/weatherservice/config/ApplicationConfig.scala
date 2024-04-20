@@ -11,6 +11,7 @@ case class ApplicationConfig(
     healthEndpoint: String,
     pointEndpoint: String,
     forecastEndpoint: String,
+    alertsEndpoint: String,
     port: Int
 ) derives ConfigReader
 

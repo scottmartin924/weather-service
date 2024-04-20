@@ -1,16 +1,16 @@
 package com.example.weatherservice.resource
 
+import io.circe.syntax.*
 import cats.syntax.all.*
 import io.circe.generic.semiauto.deriveEncoder
-import io.circe.{Codec, Decoder, Encoder}
+import io.circe.{Encoder, JsonObject}
 
 object health {
   sealed trait HealthStatus
   object HealthStatus {
-    given Codec[HealthStatus] = Codec.from(
-      Decoder.decodeString.emap(HealthStatus.fromString),
-      Encoder.encodeString.contramap(_.toString)
-    )
+    given Encoder[HealthStatus] = Encoder.encodeJsonObject.contramap { status =>
+      JsonObject("healthStatus" -> status.toString.asJson)
+    }
 
     case object OK extends HealthStatus
     case object UNAVAILABLE extends HealthStatus

@@ -3,9 +3,6 @@ package com.example.weatherservice.http.routes
 import cats.syntax.all.*
 import cats.effect.Sync
 import com.example.weatherservice.http.client.WeatherClient
-import com.example.weatherservice.resource.health.ServiceStatus
-import io.circe.syntax.EncoderOps
-import com.example.weatherservice.resource.health.ServiceStatus.*
 import org.http4s.{HttpRoutes, Response, Status}
 import org.http4s.dsl.Http4sDsl
 import org.http4s.circe.CirceEntityCodec.*
